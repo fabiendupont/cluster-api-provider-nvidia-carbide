@@ -48,22 +48,16 @@ jobs:
           kind load docker-image localhost/cluster-api-provider-nvidia-carbide:e2e \
             --name carbide-rest-local
 
-      - name: Install cert-manager
+      - name: Install Cluster API CRDs
         run: |
           kind get kubeconfig --name carbide-rest-local > /tmp/carbide-e2e-kubeconfig
           KUBECONFIG=/tmp/carbide-e2e-kubeconfig kubectl apply \
-            -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
+            --server-side \
+            -f https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.12.1/core-components.yaml \
+            --force-conflicts || true
           KUBECONFIG=/tmp/carbide-e2e-kubeconfig kubectl wait \
-            --for=condition=Available deployment/cert-manager-webhook \
-            -n cert-manager --timeout=5m
-
-      - name: Install Cluster API core components
-        run: |
-          KUBECONFIG=/tmp/carbide-e2e-kubeconfig kubectl apply \
-            -f https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.12.1/core-components.yaml
-          KUBECONFIG=/tmp/carbide-e2e-kubeconfig kubectl wait \
-            --for=condition=Available deployment/capi-controller-manager \
-            -n capi-system --timeout=10m
+            --for=condition=Established crd/clusters.cluster.x-k8s.io \
+            crd/machines.cluster.x-k8s.io --timeout=60s
 
       - name: Install provider CRDs and deploy controller
         run: |
@@ -80,4 +74,5 @@ jobs:
         env:
           NVIDIA_CARBIDE_API_ENDPOINT: http://localhost:8388
           NVIDIA_CARBIDE_KEYCLOAK_URL: http://localhost:8082
+          NVIDIA_CARBIDE_API_ENDPOINT_INTERNAL: http://carbide-rest-api.carbide-rest.svc:8388
           IMG: localhost/cluster-api-provider-nvidia-carbide:e2e
