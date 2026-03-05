@@ -63,7 +63,7 @@ jobs:
             -f https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.12.1/core-components.yaml
           KUBECONFIG=/tmp/carbide-e2e-kubeconfig kubectl wait \
             --for=condition=Available deployment/capi-controller-manager \
-            -n capi-system --timeout=5m
+            -n capi-system --timeout=10m
 
       - name: Install provider CRDs and deploy controller
         run: |
