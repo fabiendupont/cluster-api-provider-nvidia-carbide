@@ -16,11 +16,12 @@ limitations under the License.
 
 //go:build e2e
 
-package e2e
+package e2e_live
 
 import (
 	"context"
 	"fmt"
+	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -35,6 +36,18 @@ import (
 	infrastructurev1beta1 "github.com/fabiendupont/cluster-api-provider-nvidia-carbide/api/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
+
+const (
+	clusterCreationTimeout = 30 * time.Minute
+	clusterDeletionTimeout = 20 * time.Minute
+	pollInterval           = 30 * time.Second
+)
+
+func TestE2ELive(t *testing.T) {
+	RegisterFailHandler(Fail)
+	_, _ = fmt.Fprintf(GinkgoWriter, "Starting cluster-api-provider-nvidia-carbide live e2e test suite\n")
+	RunSpecs(t, "Live E2E Suite")
+}
 
 var _ = Describe("Live NVIDIA Carbide Cluster E2E", Label("live"), func() {
 	var (

@@ -108,7 +108,7 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 test-e2e-live: manifests generate ## Run e2e tests against live Carbide API.
 	kind get kubeconfig --name carbide-rest-local > /tmp/carbide-e2e-kubeconfig
 	KUBECONFIG=/tmp/carbide-e2e-kubeconfig \
-		go test -tags=e2e ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="live"
+		go test -tags=e2e ./test/e2e-live/ -v -ginkgo.v
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

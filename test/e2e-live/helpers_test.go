@@ -16,7 +16,7 @@ limitations under the License.
 
 //go:build e2e
 
-package e2e
+package e2e_live
 
 import (
 	"context"
