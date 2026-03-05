@@ -15,7 +15,6 @@ limitations under the License.
 */
 
 //go:build e2e
-// +build e2e
 
 package e2e
 
@@ -114,11 +113,11 @@ var _ = Describe("NVIDIA Carbide Cluster Lifecycle E2E", func() {
 					Namespace: testNamespace,
 				},
 				Spec: clusterv1.ClusterSpec{
-					ClusterNetwork: &clusterv1.ClusterNetwork{
-						Pods: &clusterv1.NetworkRanges{
+					ClusterNetwork: clusterv1.ClusterNetwork{
+						Pods: clusterv1.NetworkRanges{
 							CIDRBlocks: []string{"10.244.0.0/16"},
 						},
-						Services: &clusterv1.NetworkRanges{
+						Services: clusterv1.NetworkRanges{
 							CIDRBlocks: []string{"10.96.0.0/12"},
 						},
 					},
@@ -126,7 +125,6 @@ var _ = Describe("NVIDIA Carbide Cluster Lifecycle E2E", func() {
 						APIGroup:  "infrastructure.cluster.x-k8s.io",
 						Kind:      "NvidiaCarbideCluster",
 						Name:      clusterName,
-						Namespace: testNamespace,
 					},
 				},
 			}
@@ -205,7 +203,7 @@ var _ = Describe("NVIDIA Carbide Cluster Lifecycle E2E", func() {
 					},
 					Spec: clusterv1.MachineSpec{
 						ClusterName: clusterName,
-						Version:     ptr.To("v1.28.0"),
+						Version:     "v1.28.0",
 						Bootstrap: clusterv1.Bootstrap{
 							DataSecretName: ptr.To(fmt.Sprintf("%s-bootstrap", machineName)),
 						},
@@ -213,7 +211,6 @@ var _ = Describe("NVIDIA Carbide Cluster Lifecycle E2E", func() {
 							APIGroup:  "infrastructure.cluster.x-k8s.io",
 							Kind:      "NvidiaCarbideMachine",
 							Name:      machineName,
-							Namespace: testNamespace,
 						},
 					},
 				}
@@ -271,7 +268,7 @@ var _ = Describe("NVIDIA Carbide Cluster Lifecycle E2E", func() {
 					},
 					Spec: clusterv1.MachineSpec{
 						ClusterName: clusterName,
-						Version:     ptr.To("v1.28.0"),
+						Version:     "v1.28.0",
 						Bootstrap: clusterv1.Bootstrap{
 							DataSecretName: ptr.To(fmt.Sprintf("%s-bootstrap", machineName)),
 						},
@@ -279,7 +276,6 @@ var _ = Describe("NVIDIA Carbide Cluster Lifecycle E2E", func() {
 							APIGroup:  "infrastructure.cluster.x-k8s.io",
 							Kind:      "NvidiaCarbideMachine",
 							Name:      machineName,
-							Namespace: testNamespace,
 						},
 					},
 				}

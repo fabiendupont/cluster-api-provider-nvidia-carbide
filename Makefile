@@ -106,7 +106,8 @@ cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
 
 .PHONY: test-e2e-live
 test-e2e-live: manifests generate ## Run e2e tests against live Carbide API.
-	KUBECONFIG=$$(kind get kubeconfig --name carbide-rest-local) \
+	kind get kubeconfig --name carbide-rest-local > /tmp/carbide-e2e-kubeconfig
+	KUBECONFIG=/tmp/carbide-e2e-kubeconfig \
 		go test -tags=e2e ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="live"
 
 .PHONY: lint
