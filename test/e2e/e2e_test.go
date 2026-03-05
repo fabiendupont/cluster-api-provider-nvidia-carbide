@@ -39,7 +39,7 @@ const namespace = "cluster-api-provider-nvidia-carbide-system"
 const serviceAccountName = "cluster-api-provider-nvidia-carbide-controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "cluster-api-provider-nvidia-carbide-controller-manager-metrics-service"
+const metricsServiceName = "cluster-api-provider-nvidia-carbide-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
 const metricsRoleBindingName = "cluster-api-provider-nvidia-carbide-metrics-binding"
