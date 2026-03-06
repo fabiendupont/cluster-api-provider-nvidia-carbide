@@ -58,6 +58,10 @@ jobs:
           KUBECONFIG=/tmp/carbide-e2e-kubeconfig kubectl wait \
             --for=condition=Established crd/clusters.cluster.x-k8s.io \
             crd/machines.cluster.x-k8s.io --timeout=60s
+          KUBECONFIG=/tmp/carbide-e2e-kubeconfig kubectl delete \
+            mutatingwebhookconfiguration capi-mutating-webhook-configuration \
+            validatingwebhookconfiguration capi-validating-webhook-configuration \
+            --ignore-not-found
 
       - name: Install provider CRDs and deploy controller
         run: |
