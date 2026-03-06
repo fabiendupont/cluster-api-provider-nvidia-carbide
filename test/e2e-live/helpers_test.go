@@ -179,25 +179,64 @@ func registerSiteInDB(siteID string) {
 	_, _ = fmt.Fprintf(GinkgoWriter, "Registered site %s in DB\n", siteID)
 }
 
-// createSiteViaAPI creates a site via the Carbide REST API, registers it, and returns its ID.
-func createSiteViaAPI(token, orgName, name string) string {
-	body := map[string]interface{}{
-		"name":        name,
-		"displayName": name,
-	}
-	result, status := carbideAPIRequest("POST", fmt.Sprintf("/v2/org/%s/carbide/site", orgName), token, body)
-	Expect(status).To(Equal(http.StatusCreated), "Failed to create site: %v", result)
-	siteID, ok := result["id"].(string)
-	Expect(ok).To(BeTrue(), "Site response missing id")
-	_, _ = fmt.Fprintf(GinkgoWriter, "Created site %s (id=%s)\n", name, siteID)
+// setupSiteViaAPI creates the full Carbide infrastructure chain needed for the cluster controller:
+// Infrastructure Provider -> Site (registered) -> Tenant -> IP Block -> Allocation.
+// Returns siteID and tenantID. The controller will create VPCs/subnets itself.
+func setupSiteViaAPI(token, orgName, prefix string) (siteID, tenantID string) {
+	apiBase := fmt.Sprintf("/v2/org/%s/carbide", orgName)
 
-	// Register site (required before creating VPCs)
+	// Step 1: Create Infrastructure Provider (idempotent)
+	carbideAPIRequest("POST", apiBase+"/infrastructure-provider", token, map[string]interface{}{
+		"org": orgName,
+	})
+
+	// Step 2: Create Site
+	siteResult, status := carbideAPIRequest("POST", apiBase+"/site", token, map[string]interface{}{
+		"name": prefix + "-site", "displayName": prefix + " Site",
+	})
+	Expect(status).To(Equal(http.StatusCreated), "Failed to create site: %v", siteResult)
+	siteID = siteResult["id"].(string)
+	_, _ = fmt.Fprintf(GinkgoWriter, "Created site (id=%s)\n", siteID)
+
+	// Register site in DB (must be Registered before VPC creation)
 	registerSiteInDB(siteID)
 
-	return siteID
+	// Step 3: Create Tenant (idempotent)
+	tenantResult, _ := carbideAPIRequest("POST", apiBase+"/tenant", token, map[string]interface{}{
+		"org": orgName,
+	})
+	if id, ok := tenantResult["id"].(string); ok {
+		tenantID = id
+	} else {
+		currentTenant, tStatus := carbideAPIRequest("GET", apiBase+"/tenant/current", token, nil)
+		Expect(tStatus).To(Equal(http.StatusOK), "Failed to get current tenant: %v", currentTenant)
+		tenantID = currentTenant["id"].(string)
+	}
+	_, _ = fmt.Fprintf(GinkgoWriter, "Tenant ID: %s\n", tenantID)
+
+	// Step 4: Create IP Block
+	ipBlockResult, status := carbideAPIRequest("POST", apiBase+"/ipblock", token, map[string]interface{}{
+		"name": prefix + "-ipblock", "siteId": siteID,
+		"prefix": "10.0.0.0", "prefixLength": 16, "protocolVersion": "IPv4", "routingType": "Public",
+	})
+	Expect(status).To(Equal(http.StatusCreated), "Failed to create IP block: %v", ipBlockResult)
+	ipBlockID := ipBlockResult["id"].(string)
+
+	// Step 5: Create Allocation (links Tenant to Site with IP Block access)
+	allocResult, status := carbideAPIRequest("POST", apiBase+"/allocation", token, map[string]interface{}{
+		"name":     prefix + "-allocation",
+		"tenantId": tenantID,
+		"siteId":   siteID,
+		"allocationConstraints": []map[string]interface{}{
+			{"resourceType": "IPBlock", "resourceId": ipBlockID},
+		},
+	})
+	Expect(status).To(Equal(http.StatusCreated), "Failed to create allocation: %v", allocResult)
+
+	return siteID, tenantID
 }
 
-// deleteSiteViaAPI deletes a site via the Carbide REST API.
-func deleteSiteViaAPI(token, orgName, siteID string) {
+// cleanupSiteViaAPI deletes a site via the Carbide REST API.
+func cleanupSiteViaAPI(token, orgName, siteID string) {
 	carbideAPIRequest("DELETE", fmt.Sprintf("/v2/org/%s/carbide/site/%s", orgName, siteID), token, nil)
 }
