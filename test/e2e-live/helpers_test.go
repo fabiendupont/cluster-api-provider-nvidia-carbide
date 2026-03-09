@@ -197,7 +197,6 @@ func getExistingSiteID(token, orgName string) string {
 	_, _ = fmt.Fprintf(GinkgoWriter, "Using existing site %s (id=%s)\n", siteName, siteID)
 	return siteID
 }
-
 // ensureSiteRegistered ensures the site is in Registered state.
 // The site-agent registration workflow may not have completed yet.
 func ensureSiteRegistered(siteID string) {
@@ -209,10 +208,20 @@ func ensureSiteRegistered(siteID string) {
 	_, _ = fmt.Fprintf(GinkgoWriter, "Ensured site %s is Registered\n", siteID)
 }
 
+// ensureInstanceTypeReady ensures the instance type is in Ready state.
+func ensureInstanceTypeReady(instanceTypeID string) {
+	cmd := exec.Command("kubectl", "exec", "-n", "postgres", "statefulset/postgres", "--",
+		"psql", "-U", "forge", "-d", "forge", "-c",
+		fmt.Sprintf("UPDATE instance_type SET status = 'Ready' WHERE id = '%s' AND status != 'Ready'", instanceTypeID))
+	output, err := cmd.CombinedOutput()
+	Expect(err).NotTo(HaveOccurred(), "Failed to ensure instance type is ready: %s", string(output))
+	_, _ = fmt.Fprintf(GinkgoWriter, "Ensured instance type %s is Ready\n", instanceTypeID)
+}
+
 // setupSiteViaAPI finds the existing site and creates the tenant resources needed
-// for the cluster controller: Tenant -> IP Block -> Allocation.
-// Returns siteID and tenantID. The controller will create VPCs/subnets itself.
-func setupSiteViaAPI(token, orgName, prefix string) (siteID, tenantID string) {
+// for the cluster controller: Tenant -> IP Block -> Instance Type -> Allocation.
+// Returns siteID, tenantID, and instanceTypeID.
+func setupSiteViaAPI(token, orgName, prefix string) (siteID, tenantID, instanceTypeID string) {
 	apiBase := fmt.Sprintf("/v2/org/%s/carbide", orgName)
 
 	// Use the existing site (has a connected site-agent for Temporal workflows)
@@ -236,16 +245,29 @@ func setupSiteViaAPI(token, orgName, prefix string) (siteID, tenantID string) {
 	Expect(status).To(Equal(http.StatusCreated), "Failed to create IP block: %v", ipBlockResult)
 	ipBlockID := ipBlockResult["id"].(string)
 
-	// Create Allocation (links Tenant to Site with IP Block access)
+	// Create Instance Type
+	itResult, itStatus := carbideAPIRequest("POST", apiBase+"/instance/type", token, map[string]interface{}{
+		"name":   prefix + "-instance-type",
+		"siteId": siteID,
+	})
+	Expect(itStatus).To(Equal(http.StatusCreated), "Failed to create instance type: %v", itResult)
+	instanceTypeID = itResult["id"].(string)
+	_, _ = fmt.Fprintf(GinkgoWriter, "Instance Type ID: %s\n", instanceTypeID)
+
+	// Ensure instance type is Ready
+	ensureInstanceTypeReady(instanceTypeID)
+
+	// Create Allocation with both IPBlock and InstanceType constraints
 	allocResult, status := carbideAPIRequest("POST", apiBase+"/allocation", token, map[string]interface{}{
 		"name":     prefix + "-allocation",
 		"tenantId": tenantID,
 		"siteId":   siteID,
 		"allocationConstraints": []map[string]interface{}{
 			{"resourceType": "IPBlock", "resourceTypeId": ipBlockID, "constraintType": "OnDemand", "constraintValue": 24},
+			{"resourceType": "InstanceType", "resourceTypeId": instanceTypeID, "constraintType": "OnDemand", "constraintValue": 1},
 		},
 	})
 	Expect(status).To(Equal(http.StatusCreated), "Failed to create allocation: %v", allocResult)
 
-	return siteID, tenantID
+	return siteID, tenantID, instanceTypeID
 }
