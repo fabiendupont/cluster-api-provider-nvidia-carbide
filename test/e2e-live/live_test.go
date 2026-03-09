@@ -87,7 +87,7 @@ var _ = Describe("Live NVIDIA Carbide Cluster E2E", Label("live"), func() {
 	Context("Cluster and machine lifecycle against live Carbide API", func() {
 		It("should create cluster infrastructure and a machine, then clean up", func() {
 			By("Setting up infrastructure via Carbide API")
-			siteID, tenantID, instanceTypeID := setupSiteViaAPI(token, "test-org", clusterName)
+			siteID, tenantID, machineID := setupSiteViaAPI(token, "test-org", clusterName)
 
 			By("Creating credentials secret")
 			secret := createCredentialsSecret(ctx, k8sClient, fmt.Sprintf("%s-creds", clusterName), testNamespace, token)
@@ -215,7 +215,7 @@ var _ = Describe("Live NVIDIA Carbide Cluster E2E", Label("live"), func() {
 				},
 				Spec: infrastructurev1beta1.NvidiaCarbideMachineSpec{
 					InstanceType: infrastructurev1beta1.InstanceTypeSpec{
-						ID: instanceTypeID,
+						MachineID: machineID,
 					},
 					Network: infrastructurev1beta1.NetworkSpec{
 						SubnetName: "control-plane",

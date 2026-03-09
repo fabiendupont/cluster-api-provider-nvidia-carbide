@@ -208,20 +208,33 @@ func ensureSiteRegistered(siteID string) {
 	_, _ = fmt.Fprintf(GinkgoWriter, "Ensured site %s is Registered\n", siteID)
 }
 
-// ensureInstanceTypeReady ensures the instance type is in Ready state.
-func ensureInstanceTypeReady(instanceTypeID string) {
+// getInfraProviderID retrieves the infrastructure provider ID for the org.
+func getInfraProviderID(token, orgName string) string {
+	apiBase := fmt.Sprintf("/v2/org/%s/carbide", orgName)
+	result, status := carbideAPIRequest("GET", apiBase+"/infrastructure-provider/current", token, nil)
+	Expect(status).To(Equal(http.StatusOK), "Failed to get infrastructure provider: %v", result)
+	id := result["id"].(string)
+	_, _ = fmt.Fprintf(GinkgoWriter, "Infrastructure Provider ID: %s\n", id)
+	return id
+}
+
+// createTestMachineInDB inserts a test machine directly into PostgreSQL.
+func createTestMachineInDB(siteID, infraProviderID, machineID string) {
+	sql := fmt.Sprintf(
+		"INSERT INTO machine (id, infrastructure_provider_id, site_id, controller_machine_id, status, is_in_maintenance, is_usable_by_tenant, created, updated) "+
+			"VALUES ('%s', '%s', '%s', '%s', 'Ready', false, true, NOW(), NOW()) ON CONFLICT (id) DO NOTHING",
+		machineID, infraProviderID, siteID, machineID)
 	cmd := exec.Command("kubectl", "exec", "-n", "postgres", "statefulset/postgres", "--",
-		"psql", "-U", "forge", "-d", "forge", "-c",
-		fmt.Sprintf("UPDATE instance_type SET status = 'Ready' WHERE id = '%s' AND status != 'Ready'", instanceTypeID))
+		"psql", "-U", "forge", "-d", "forge", "-c", sql)
 	output, err := cmd.CombinedOutput()
-	Expect(err).NotTo(HaveOccurred(), "Failed to ensure instance type is ready: %s", string(output))
-	_, _ = fmt.Fprintf(GinkgoWriter, "Ensured instance type %s is Ready\n", instanceTypeID)
+	Expect(err).NotTo(HaveOccurred(), "Failed to create test machine in DB: %s", string(output))
+	_, _ = fmt.Fprintf(GinkgoWriter, "Created test machine %s in DB\n", machineID)
 }
 
 // setupSiteViaAPI finds the existing site and creates the tenant resources needed
-// for the cluster controller: Tenant -> IP Block -> Instance Type -> Allocation.
-// Returns siteID, tenantID, and instanceTypeID.
-func setupSiteViaAPI(token, orgName, prefix string) (siteID, tenantID, instanceTypeID string) {
+// for the cluster controller: Tenant -> IP Block -> Allocation + test machine in DB.
+// Returns siteID, tenantID, and machineID.
+func setupSiteViaAPI(token, orgName, prefix string) (siteID, tenantID, machineID string) {
 	apiBase := fmt.Sprintf("/v2/org/%s/carbide", orgName)
 
 	// Use the existing site (has a connected site-agent for Temporal workflows)
@@ -245,40 +258,21 @@ func setupSiteViaAPI(token, orgName, prefix string) (siteID, tenantID, instanceT
 	Expect(status).To(Equal(http.StatusCreated), "Failed to create IP block: %v", ipBlockResult)
 	ipBlockID := ipBlockResult["id"].(string)
 
-	// Create Instance Type
-	itResult, itStatus := carbideAPIRequest("POST", apiBase+"/instance/type", token, map[string]interface{}{
-		"name":   prefix + "-instance-type",
-		"siteId": siteID,
-	})
-	Expect(itStatus).To(Equal(http.StatusCreated), "Failed to create instance type: %v", itResult)
-	instanceTypeID = itResult["id"].(string)
-	_, _ = fmt.Fprintf(GinkgoWriter, "Instance Type ID: %s\n", instanceTypeID)
-
-	// Ensure instance type is Ready
-	ensureInstanceTypeReady(instanceTypeID)
-
-	// Create Allocation for IPBlock (one constraint per allocation)
+	// Create Allocation for IPBlock
 	allocResult, status := carbideAPIRequest("POST", apiBase+"/allocation", token, map[string]interface{}{
-		"name":     prefix + "-ipblock-allocation",
+		"name":     prefix + "-allocation",
 		"tenantId": tenantID,
 		"siteId":   siteID,
 		"allocationConstraints": []map[string]interface{}{
 			{"resourceType": "IPBlock", "resourceTypeId": ipBlockID, "constraintType": "OnDemand", "constraintValue": 24},
 		},
 	})
-	Expect(status).To(Equal(http.StatusCreated), "Failed to create IPBlock allocation: %v", allocResult)
+	Expect(status).To(Equal(http.StatusCreated), "Failed to create allocation: %v", allocResult)
 
-	// Create Allocation for InstanceType
-	itAllocResult, itAllocStatus := carbideAPIRequest("POST", apiBase+"/allocation", token, map[string]interface{}{
-		"name":     prefix + "-instancetype-allocation",
-		"tenantId": tenantID,
-		"siteId":   siteID,
-		"allocationConstraints": []map[string]interface{}{
-			{"resourceType": "InstanceType", "resourceTypeId": instanceTypeID, "constraintType": "Reserved", "constraintValue": 1},
-		},
-	})
-	Expect(itAllocStatus).To(Equal(http.StatusCreated), "Failed to create InstanceType allocation: %v", itAllocResult)
-	_ = itAllocResult
+	// Create a test machine in DB (mock-core doesn't persist machines)
+	infraProviderID := getInfraProviderID(token, orgName)
+	machineID = prefix + "-machine"
+	createTestMachineInDB(siteID, infraProviderID, machineID)
 
-	return siteID, tenantID, instanceTypeID
+	return siteID, tenantID, machineID
 }
