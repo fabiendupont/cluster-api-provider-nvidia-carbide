@@ -83,4 +83,10 @@ jobs:
             -n cluster-api-provider-nvidia-carbide-system --timeout=5m
 
       - name: Run e2e tests
-        run: make test-e2e-live
+        run: |
+          make test-e2e-live || true
+          echo "=== Controller logs ==="
+          kubectl logs -l control-plane=controller-manager \
+            -n cluster-api-provider-nvidia-carbide-system --tail=200
+          # Re-run to get correct exit code
+          make test-e2e-live
