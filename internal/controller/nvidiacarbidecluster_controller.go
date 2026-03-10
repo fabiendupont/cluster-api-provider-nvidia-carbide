@@ -375,28 +375,36 @@ func (r *NvidiaCarbideClusterReconciler) ensureIPBlockAndAllocation(
 
 		logger.Info("Creating allocation", "name", allocName, "tenantID", clusterScope.TenantID(), "siteID", siteID)
 		alloc, httpResp, err := clusterScope.NvidiaCarbideClient.CreateAllocation(ctx, clusterScope.OrgName, allocReq)
-		if err != nil {
-			return "", fmt.Errorf("failed to create allocation: %w", err)
-		}
-		if httpResp.StatusCode != http.StatusCreated {
-			return "", fmt.Errorf("failed to create allocation, status %d", httpResp.StatusCode)
-		}
-		if alloc == nil || alloc.Id == nil {
-			return "", fmt.Errorf("allocation ID missing in response")
-		}
 
-		clusterScope.SetAllocationID(*alloc.Id)
-		logger.Info("Successfully created allocation", "allocationID", *alloc.Id)
+		// The SDK may fail to deserialize the response (e.g., unrecognized status enum)
+		// even when the allocation was created successfully. Check the HTTP status first.
+		if httpResp != nil && httpResp.StatusCode == http.StatusCreated {
+			// Allocation created — extract IDs if available
+			if alloc != nil && alloc.Id != nil {
+				clusterScope.SetAllocationID(*alloc.Id)
+				logger.Info("Successfully created allocation", "allocationID", *alloc.Id)
 
-		// Extract child IP block ID from allocation constraints
-		for _, ac := range alloc.AllocationConstraints {
-			if ac.ResourceType != nil && *ac.ResourceType == "IPBlock" {
-				if derivedID := ac.DerivedResourceId.Get(); derivedID != nil {
-					clusterScope.SetChildIPBlockID(*derivedID)
-					logger.Info("Child IP block created", "childIPBlockID", *derivedID)
-					break
+				for _, ac := range alloc.AllocationConstraints {
+					if ac.ResourceType != nil && *ac.ResourceType == "IPBlock" {
+						if derivedID := ac.DerivedResourceId.Get(); derivedID != nil {
+							clusterScope.SetChildIPBlockID(*derivedID)
+							logger.Info("Child IP block created", "childIPBlockID", *derivedID)
+							break
+						}
+					}
 				}
+			} else if err != nil {
+				// SDK deserialization failed but allocation was created.
+				// We need to query the allocation to get the child IP block ID.
+				logger.Info("Allocation created (201) but SDK deserialization failed, will retry to get IDs", "error", err)
+				return "", fmt.Errorf("allocation created but response parsing failed, will retry: %w", err)
 			}
+		} else if httpResp != nil && httpResp.StatusCode == http.StatusConflict {
+			// 409 Conflict — allocation already exists from a previous attempt
+			logger.Info("Allocation already exists (409 Conflict), will retry to get child IP block ID")
+			return "", fmt.Errorf("allocation exists but child IP block ID not yet captured, will retry")
+		} else if err != nil {
+			return "", fmt.Errorf("failed to create allocation: %w", err)
 		}
 	}
 
