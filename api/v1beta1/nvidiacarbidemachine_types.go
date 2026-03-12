@@ -19,6 +19,7 @@ package v1beta1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	capierrors "sigs.k8s.io/cluster-api/errors"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -47,9 +48,47 @@ type NvidiaCarbideMachineSpec struct {
 	// +optional
 	SSHKeyGroups []string `json:"sshKeyGroups,omitempty"`
 
+	// InfiniBandInterfaces specifies InfiniBand partition attachments
+	// +optional
+	InfiniBandInterfaces []InfiniBandInterfaceSpec `json:"infiniBandInterfaces,omitempty"`
+
+	// NVLinkInterfaces specifies NVLink logical partition attachments
+	// +optional
+	NVLinkInterfaces []NVLinkInterfaceSpec `json:"nvlinkInterfaces,omitempty"`
+
 	// Labels to apply to the NVIDIA Carbide instance
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
+}
+
+// InfiniBandInterfaceSpec defines an InfiniBand partition attachment
+type InfiniBandInterfaceSpec struct {
+	// PartitionID is the InfiniBand partition to attach to
+	// +required
+	PartitionID string `json:"partitionID"`
+
+	// Device is the InfiniBand device name
+	// +optional
+	Device string `json:"device,omitempty"`
+
+	// DeviceInstance is the index of the device
+	// +optional
+	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
+
+	// IsPhysical specifies whether to attach over physical interface
+	// +optional
+	IsPhysical bool `json:"isPhysical,omitempty"`
+}
+
+// NVLinkInterfaceSpec defines an NVLink logical partition attachment
+type NVLinkInterfaceSpec struct {
+	// LogicalPartitionID is the NVLink logical partition to attach to
+	// +required
+	LogicalPartitionID string `json:"logicalPartitionID"`
+
+	// DeviceInstance is the index of the GPU device
+	// +optional
+	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
 }
 
 // InstanceTypeSpec specifies the instance type or specific machine allocation
@@ -71,6 +110,10 @@ type InstanceTypeSpec struct {
 
 // OSSpec defines operating system configuration
 type OSSpec struct {
+	// ID specifies the NVIDIA Carbide operating system UUID
+	// +optional
+	ID string `json:"id,omitempty"`
+
 	// Type specifies the OS type (e.g., "ubuntu", "rhel")
 	// +optional
 	Type string `json:"type,omitempty"`
@@ -121,9 +164,26 @@ type NvidiaCarbideMachineStatus struct {
 	// +optional
 	InstanceState string `json:"instanceState,omitempty"`
 
+	// ProviderID is the unique identifier for the machine instance set by the provider
+	// Format: nvidia-carbide://org/tenant/site/instance-id
+	// +optional
+	ProviderID *string `json:"providerID,omitempty"`
+
 	// Addresses contains the IP addresses assigned to the machine
 	// +optional
 	Addresses []clusterv1.MachineAddress `json:"addresses,omitempty"`
+
+	// FailureReason will be set in the event that there is a terminal problem
+	// reconciling the machine and will contain a succinct value suitable for
+	// machine interpretation.
+	// +optional
+	FailureReason *capierrors.MachineStatusError `json:"failureReason,omitempty"`
+
+	// FailureMessage will be set in the event that there is a terminal problem
+	// reconciling the machine and will contain a more descriptive value suitable
+	// for human consumption.
+	// +optional
+	FailureMessage *string `json:"failureMessage,omitempty"`
 
 	// Conditions represent the current state of the NvidiaCarbideMachine
 	// +optional

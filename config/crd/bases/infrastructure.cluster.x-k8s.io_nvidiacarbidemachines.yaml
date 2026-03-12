@@ -40,6 +40,31 @@ spec:
           spec:
             description: spec defines the desired state of NvidiaCarbideMachine
             properties:
+              infiniBandInterfaces:
+                description: InfiniBandInterfaces specifies InfiniBand partition attachments
+                items:
+                  description: InfiniBandInterfaceSpec defines an InfiniBand partition
+                    attachment
+                  properties:
+                    device:
+                      description: Device is the InfiniBand device name
+                      type: string
+                    deviceInstance:
+                      description: DeviceInstance is the index of the device
+                      format: int32
+                      type: integer
+                    isPhysical:
+                      description: IsPhysical specifies whether to attach over physical
+                        interface
+                      type: boolean
+                    partitionID:
+                      description: PartitionID is the InfiniBand partition to attach
+                        to
+                      type: string
+                  required:
+                  - partitionID
+                  type: object
+                type: array
               instanceType:
                 description: InstanceType specifies the machine instance configuration
                 properties:
@@ -90,9 +115,31 @@ spec:
                 required:
                 - subnetName
                 type: object
+              nvlinkInterfaces:
+                description: NVLinkInterfaces specifies NVLink logical partition attachments
+                items:
+                  description: NVLinkInterfaceSpec defines an NVLink logical partition
+                    attachment
+                  properties:
+                    deviceInstance:
+                      description: DeviceInstance is the index of the GPU device
+                      format: int32
+                      type: integer
+                    logicalPartitionID:
+                      description: LogicalPartitionID is the NVLink logical partition
+                        to attach to
+                      type: string
+                  required:
+                  - logicalPartitionID
+                  type: object
+                type: array
               operatingSystem:
                 description: OperatingSystem configuration for the machine
                 properties:
+                  id:
+                    description: ID specifies the NVIDIA Carbide operating system
+                      UUID
+                    type: string
                   type:
                     description: Type specifies the OS type (e.g., "ubuntu", "rhel")
                     type: string
@@ -201,6 +248,18 @@ spec:
                   - type
                   type: object
                 type: array
+              failureMessage:
+                description: |-
+                  FailureMessage will be set in the event that there is a terminal problem
+                  reconciling the machine and will contain a more descriptive value suitable
+                  for human consumption.
+                type: string
+              failureReason:
+                description: |-
+                  FailureReason will be set in the event that there is a terminal problem
+                  reconciling the machine and will contain a succinct value suitable for
+                  machine interpretation.
+                type: string
               instanceID:
                 description: InstanceID is the NVIDIA Carbide instance ID
                 type: string
@@ -211,6 +270,11 @@ spec:
                 type: string
               machineID:
                 description: MachineID is the physical machine ID
+                type: string
+              providerID:
+                description: |-
+                  ProviderID is the unique identifier for the machine instance set by the provider
+                  Format: nvidia-carbide://org/tenant/site/instance-id
                 type: string
               ready:
                 description: Ready indicates if the machine is ready and available

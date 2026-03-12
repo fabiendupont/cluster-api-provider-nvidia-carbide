@@ -73,6 +73,15 @@ type MockCarbideClient struct {
 	CreateAllocationFunc func(
 		ctx context.Context, org string, req bmm.AllocationCreateRequest,
 	) (*bmm.Allocation, *http.Response, error)
+	GetAllocationFunc func(
+		ctx context.Context, org string, allocationId string,
+	) (*bmm.Allocation, *http.Response, error)
+	GetAllAllocationFunc func(
+		ctx context.Context, org string,
+	) ([]bmm.Allocation, *http.Response, error)
+	DeleteAllocationFunc func(
+		ctx context.Context, org string, allocationId string,
+	) (*http.Response, error)
 
 	// IP Block methods
 	CreateIpblockFunc func(
@@ -81,6 +90,14 @@ type MockCarbideClient struct {
 	GetIpblockFunc func(
 		ctx context.Context, org string, ipBlockId string,
 	) (*bmm.IpBlock, *http.Response, error)
+	DeleteIpblockFunc func(
+		ctx context.Context, org string, ipBlockId string,
+	) (*http.Response, error)
+
+	// Instance list
+	GetAllInstanceFunc func(
+		ctx context.Context, org string,
+	) ([]bmm.Instance, *http.Response, error)
 }
 
 // VPC methods
@@ -205,6 +222,33 @@ func (m *MockCarbideClient) CreateAllocation(
 	return nil, nil, nil
 }
 
+func (m *MockCarbideClient) GetAllocation(
+	ctx context.Context, org string, allocationId string,
+) (*bmm.Allocation, *http.Response, error) {
+	if m.GetAllocationFunc != nil {
+		return m.GetAllocationFunc(ctx, org, allocationId)
+	}
+	return nil, nil, nil
+}
+
+func (m *MockCarbideClient) GetAllAllocation(
+	ctx context.Context, org string,
+) ([]bmm.Allocation, *http.Response, error) {
+	if m.GetAllAllocationFunc != nil {
+		return m.GetAllAllocationFunc(ctx, org)
+	}
+	return nil, nil, nil
+}
+
+func (m *MockCarbideClient) DeleteAllocation(
+	ctx context.Context, org string, allocationId string,
+) (*http.Response, error) {
+	if m.DeleteAllocationFunc != nil {
+		return m.DeleteAllocationFunc(ctx, org, allocationId)
+	}
+	return nil, nil
+}
+
 // IPBlock methods
 func (m *MockCarbideClient) CreateIpblock(
 	ctx context.Context, org string, req bmm.IpBlockCreateRequest,
@@ -220,6 +264,24 @@ func (m *MockCarbideClient) GetIpblock(
 ) (*bmm.IpBlock, *http.Response, error) {
 	if m.GetIpblockFunc != nil {
 		return m.GetIpblockFunc(ctx, org, ipBlockId)
+	}
+	return nil, nil, nil
+}
+
+func (m *MockCarbideClient) DeleteIpblock(
+	ctx context.Context, org string, ipBlockId string,
+) (*http.Response, error) {
+	if m.DeleteIpblockFunc != nil {
+		return m.DeleteIpblockFunc(ctx, org, ipBlockId)
+	}
+	return nil, nil
+}
+
+func (m *MockCarbideClient) GetAllInstance(
+	ctx context.Context, org string,
+) ([]bmm.Instance, *http.Response, error) {
+	if m.GetAllInstanceFunc != nil {
+		return m.GetAllInstanceFunc(ctx, org)
 	}
 	return nil, nil, nil
 }

@@ -183,15 +183,17 @@ func main() {
 	ctx := context.Background()
 
 	if err := (&controller.NvidiaCarbideClusterReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("nvidiacarbidecluster-controller"),
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NvidiaCarbideCluster")
 		os.Exit(1)
 	}
 	if err := (&controller.NvidiaCarbideMachineReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("nvidiacarbidemachine-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NvidiaCarbideMachine")
 		os.Exit(1)

@@ -1,0 +1,238 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: nvidiacarbideclustertemplates.infrastructure.cluster.x-k8s.io
+spec:
+  group: infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: NvidiaCarbideClusterTemplate
+    listKind: NvidiaCarbideClusterTemplateList
+    plural: nvidiacarbideclustertemplates
+    singular: nvidiacarbideclustertemplate
+  scope: Namespaced
+  versions:
+  - name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: NvidiaCarbideClusterTemplate is the Schema for the nvidiacarbideclustertemplates
+          API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of NvidiaCarbideClusterTemplate
+            properties:
+              template:
+                description: Template contains the NvidiaCarbideCluster template specification
+                properties:
+                  metadata:
+                    description: Standard object's metadata
+                    type: object
+                  spec:
+                    description: Spec is the specification of the desired behavior
+                      of the cluster
+                    properties:
+                      authentication:
+                        description: Authentication contains credentials for accessing
+                          the NVIDIA Carbide API
+                        properties:
+                          secretRef:
+                            description: |-
+                              SecretRef references a Secret containing NVIDIA Carbide credentials
+                              The secret must contain: endpoint, orgName, token
+                            properties:
+                              name:
+                                description: name is unique within a namespace to
+                                  reference a secret resource.
+                                type: string
+                              namespace:
+                                description: namespace defines the space within which
+                                  the secret name must be unique.
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - secretRef
+                        type: object
+                      controlPlaneEndpoint:
+                        description: ControlPlaneEndpoint represents the endpoint
+                          used to communicate with the control plane
+                        minProperties: 1
+                        properties:
+                          host:
+                            description: host is the hostname on which the API server
+                              is serving.
+                            maxLength: 512
+                            minLength: 1
+                            type: string
+                          port:
+                            description: port is the port on which the API server
+                              is serving.
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                        type: object
+                      siteRef:
+                        description: SiteRef references the NVIDIA Carbide Site where
+                          the cluster will be provisioned
+                        properties:
+                          id:
+                            description: ID directly specifies the Site UUID
+                            type: string
+                          name:
+                            description: Name references a Site CRD in the same namespace
+                            type: string
+                        type: object
+                      subnets:
+                        description: Subnets for control-plane and worker nodes
+                        items:
+                          description: SubnetSpec defines a subnet configuration
+                          properties:
+                            cidr:
+                              description: CIDR block for the subnet
+                              type: string
+                            labels:
+                              additionalProperties:
+                                type: string
+                              description: Labels to apply to the subnet
+                              type: object
+                            name:
+                              description: Name of the subnet
+                              maxLength: 63
+                              type: string
+                            role:
+                              description: Role of the subnet (control-plane or worker)
+                              enum:
+                              - control-plane
+                              - worker
+                              type: string
+                          required:
+                          - cidr
+                          - name
+                          type: object
+                        minItems: 1
+                        type: array
+                      tenantID:
+                        description: TenantID is the NVIDIA Carbide tenant ID for
+                          multi-tenancy
+                        type: string
+                      vpc:
+                        description: VPC configuration for the cluster network
+                        properties:
+                          labels:
+                            additionalProperties:
+                              type: string
+                            description: Labels to apply to the VPC
+                            type: object
+                          name:
+                            description: Name of the VPC
+                            maxLength: 63
+                            type: string
+                          networkSecurityGroup:
+                            description: NetworkSecurityGroup configuration
+                            properties:
+                              name:
+                                description: Name of the Network Security Group
+                                maxLength: 63
+                                type: string
+                              rules:
+                                description: Rules for the Network Security Group
+                                items:
+                                  description: NSGRule defines a single security rule
+                                  properties:
+                                    action:
+                                      description: Action to take (allow or deny)
+                                      enum:
+                                      - allow
+                                      - deny
+                                      type: string
+                                    direction:
+                                      description: Direction of traffic (ingress or
+                                        egress)
+                                      enum:
+                                      - ingress
+                                      - egress
+                                      type: string
+                                    name:
+                                      description: Name of the rule
+                                      maxLength: 63
+                                      pattern: ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$
+                                      type: string
+                                    portRange:
+                                      description: PortRange specifies the port range
+                                        (e.g., "80", "1000-2000")
+                                      pattern: ^[0-9]{1,5}(-[0-9]{1,5})?$
+                                      type: string
+                                    protocol:
+                                      description: Protocol (tcp, udp, icmp, or all)
+                                      enum:
+                                      - tcp
+                                      - udp
+                                      - icmp
+                                      - all
+                                      type: string
+                                    sourceCIDR:
+                                      description: SourceCIDR specifies the source
+                                        IP range
+                                      type: string
+                                  required:
+                                  - action
+                                  - direction
+                                  - name
+                                  - protocol
+                                  type: object
+                                type: array
+                            required:
+                            - name
+                            type: object
+                          networkVirtualizationType:
+                            description: |-
+                              NetworkVirtualizationType specifies the network virtualization type
+                              Valid values: ETHERNET_VIRTUALIZER, FNN
+                            enum:
+                            - ETHERNET_VIRTUALIZER
+                            - FNN
+                            type: string
+                        required:
+                        - name
+                        - networkVirtualizationType
+                        type: object
+                    required:
+                    - authentication
+                    - siteRef
+                    - subnets
+                    - tenantID
+                    - vpc
+                    type: object
+                required:
+                - spec
+                type: object
+            required:
+            - template
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true

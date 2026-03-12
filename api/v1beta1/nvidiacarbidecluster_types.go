@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	capierrors "sigs.k8s.io/cluster-api/errors"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -67,6 +68,7 @@ type SiteReference struct {
 // VPCSpec defines the VPC configuration
 type VPCSpec struct {
 	// Name of the VPC
+	// +kubebuilder:validation:MaxLength=63
 	// +required
 	Name string `json:"name"`
 
@@ -88,6 +90,7 @@ type VPCSpec struct {
 // NSGSpec defines Network Security Group configuration
 type NSGSpec struct {
 	// Name of the Network Security Group
+	// +kubebuilder:validation:MaxLength=63
 	// +required
 	Name string `json:"name"`
 
@@ -99,6 +102,8 @@ type NSGSpec struct {
 // NSGRule defines a single security rule
 type NSGRule struct {
 	// Name of the rule
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`
 	// +required
 	Name string `json:"name"`
 
@@ -113,6 +118,7 @@ type NSGRule struct {
 	Protocol string `json:"protocol"`
 
 	// PortRange specifies the port range (e.g., "80", "1000-2000")
+	// +kubebuilder:validation:Pattern=`^[0-9]{1,5}(-[0-9]{1,5})?$`
 	// +optional
 	PortRange string `json:"portRange,omitempty"`
 
@@ -129,6 +135,7 @@ type NSGRule struct {
 // SubnetSpec defines a subnet configuration
 type SubnetSpec struct {
 	// Name of the subnet
+	// +kubebuilder:validation:MaxLength=63
 	// +required
 	Name string `json:"name"`
 
@@ -167,6 +174,18 @@ type NvidiaCarbideClusterStatus struct {
 	// NetworkStatus contains the network infrastructure status
 	// +optional
 	NetworkStatus NetworkStatus `json:"networkStatus,omitempty"`
+
+	// FailureReason will be set in the event that there is a terminal problem
+	// reconciling the cluster and will contain a succinct value suitable for
+	// machine interpretation.
+	// +optional
+	FailureReason *capierrors.ClusterStatusError `json:"failureReason,omitempty"`
+
+	// FailureMessage will be set in the event that there is a terminal problem
+	// reconciling the cluster and will contain a more descriptive value suitable
+	// for human consumption.
+	// +optional
+	FailureMessage *string `json:"failureMessage,omitempty"`
 
 	// Conditions represent the current state of the NvidiaCarbideCluster
 	// +optional

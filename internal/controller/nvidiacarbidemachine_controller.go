@@ -22,10 +22,13 @@ import (
 	"net/http"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	capierrors "sigs.k8s.io/cluster-api/errors"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -56,7 +59,8 @@ const (
 // NvidiaCarbideMachineReconciler reconciles a NvidiaCarbideMachine object
 type NvidiaCarbideMachineReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 
 	// NvidiaCarbideClient can be set for testing to inject a mock client
 	NvidiaCarbideClient scope.NvidiaCarbideClientInterface
@@ -70,6 +74,7 @@ type NvidiaCarbideMachineReconciler struct {
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile handles NvidiaCarbideMachine reconciliation
 func (r *NvidiaCarbideMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -199,6 +204,22 @@ func (r *NvidiaCarbideMachineReconciler) reconcileNormal(
 		return r.reconcileInstance(ctx, machineScope, clusterScope)
 	}
 
+	// Check for existing instance with the same name (duplicate prevention)
+	if existingInstance, err := r.findExistingInstance(ctx, machineScope, clusterScope); err != nil {
+		logger.Error(err, "failed to check for existing instance")
+	} else if existingInstance != nil && existingInstance.Id != nil {
+		logger.Info("Found existing instance with matching name, reusing",
+			"instanceID", *existingInstance.Id, "name", machineScope.Name())
+		machineScope.SetInstanceID(*existingInstance.Id)
+		if existingInstance.MachineId.Get() != nil {
+			machineScope.SetMachineID(*existingInstance.MachineId.Get())
+		}
+		if existingInstance.Status != nil {
+			machineScope.SetInstanceState(string(*existingInstance.Status))
+		}
+		return r.reconcileInstance(ctx, machineScope, clusterScope)
+	}
+
 	// Create new instance
 	if err := r.createInstance(ctx, machineScope, clusterScope); err != nil {
 		conditions.Set(machineScope.NvidiaCarbideMachine, metav1.Condition{
@@ -295,6 +316,54 @@ func (r *NvidiaCarbideMachineReconciler) createInstance(
 		instanceReq.MachineId = &machineScope.NvidiaCarbideMachine.Spec.InstanceType.MachineID
 	}
 
+	// Set AllowUnhealthyMachine if specified
+	if machineScope.NvidiaCarbideMachine.Spec.InstanceType.AllowUnhealthyMachine {
+		instanceReq.AllowUnhealthyMachine = &machineScope.NvidiaCarbideMachine.Spec.InstanceType.AllowUnhealthyMachine
+	}
+
+	// Set OperatingSystemId if specified
+	if machineScope.NvidiaCarbideMachine.Spec.OperatingSystem != nil &&
+		machineScope.NvidiaCarbideMachine.Spec.OperatingSystem.ID != "" {
+		osID := machineScope.NvidiaCarbideMachine.Spec.OperatingSystem.ID
+		instanceReq.OperatingSystemId = *bmm.NewNullableString(&osID)
+	}
+
+	// Set InfiniBand interfaces if specified
+	if len(machineScope.NvidiaCarbideMachine.Spec.InfiniBandInterfaces) > 0 {
+		ibInterfaces := make([]bmm.InfiniBandInterfaceCreateRequest, 0, len(machineScope.NvidiaCarbideMachine.Spec.InfiniBandInterfaces))
+		for _, ibSpec := range machineScope.NvidiaCarbideMachine.Spec.InfiniBandInterfaces {
+			ibReq := bmm.InfiniBandInterfaceCreateRequest{
+				PartitionId: &ibSpec.PartitionID,
+			}
+			if ibSpec.Device != "" {
+				ibReq.Device = &ibSpec.Device
+			}
+			if ibSpec.DeviceInstance != nil {
+				ibReq.DeviceInstance = ibSpec.DeviceInstance
+			}
+			if ibSpec.IsPhysical {
+				ibReq.IsPhysical = &ibSpec.IsPhysical
+			}
+			ibInterfaces = append(ibInterfaces, ibReq)
+		}
+		instanceReq.InfinibandInterfaces = ibInterfaces
+	}
+
+	// Set NVLink interfaces if specified
+	if len(machineScope.NvidiaCarbideMachine.Spec.NVLinkInterfaces) > 0 {
+		nvlinkInterfaces := make([]bmm.NVLinkInterfaceCreateRequest, 0, len(machineScope.NvidiaCarbideMachine.Spec.NVLinkInterfaces))
+		for _, nvSpec := range machineScope.NvidiaCarbideMachine.Spec.NVLinkInterfaces {
+			nvReq := bmm.NVLinkInterfaceCreateRequest{
+				NvLinklogicalPartitionId: &nvSpec.LogicalPartitionID,
+			}
+			if nvSpec.DeviceInstance != nil {
+				nvReq.DeviceInstance = nvSpec.DeviceInstance
+			}
+			nvlinkInterfaces = append(nvlinkInterfaces, nvReq)
+		}
+		instanceReq.NvLinkInterfaces = nvlinkInterfaces
+	}
+
 	// Enable phone home for bootstrap communication
 	phoneHome := true
 	instanceReq.PhoneHomeEnabled = &phoneHome
@@ -342,6 +411,8 @@ func (r *NvidiaCarbideMachineReconciler) createInstance(
 		"instanceID", instanceID,
 		"machineID", machineID,
 		"status", status)
+	r.recordEvent(machineScope.NvidiaCarbideMachine, corev1.EventTypeNormal, "InstanceCreated",
+		"Successfully created instance %s", instanceID)
 
 	return nil
 }
@@ -422,6 +493,8 @@ func (r *NvidiaCarbideMachineReconciler) reconcileInstance(
 			instanceIDStr = *instance.Id
 		}
 		logger.Info("NvidiaCarbideMachine is ready", "instanceID", instanceIDStr, "status", string(*instance.Status))
+		r.recordEvent(machineScope.NvidiaCarbideMachine, corev1.EventTypeNormal, "InstanceReady",
+			"Instance %s is ready", instanceIDStr)
 		return ctrl.Result{}, nil
 	}
 
@@ -454,11 +527,14 @@ func (r *NvidiaCarbideMachineReconciler) reconcileDelete(
 
 		httpResp, err := machineScope.NvidiaCarbideClient.DeleteInstance(ctx, machineScope.OrgName, machineScope.InstanceID())
 		if err != nil {
-			logger.Error(err, "failed to delete instance", "instanceID", machineScope.InstanceID())
-			return ctrl.Result{}, err
-		}
-
-		if httpResp.StatusCode != http.StatusOK && httpResp.StatusCode != http.StatusNoContent {
+			if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
+				logger.Info("Instance already deleted", "instanceID", machineScope.InstanceID())
+			} else {
+				logger.Error(err, "failed to delete instance", "instanceID", machineScope.InstanceID())
+				return ctrl.Result{}, err
+			}
+		} else if httpResp.StatusCode != http.StatusOK && httpResp.StatusCode != http.StatusNoContent &&
+			httpResp.StatusCode != http.StatusNotFound {
 			logger.Error(nil, "failed to delete instance",
 				"instanceID", machineScope.InstanceID(),
 				"status", httpResp.StatusCode)
@@ -471,6 +547,37 @@ func (r *NvidiaCarbideMachineReconciler) reconcileDelete(
 
 	logger.Info("Successfully deleted NvidiaCarbideMachine")
 	return ctrl.Result{}, nil
+}
+
+// findExistingInstance checks if an instance with the same name already exists.
+func (r *NvidiaCarbideMachineReconciler) findExistingInstance(
+	ctx context.Context,
+	machineScope *scope.MachineScope,
+	clusterScope *scope.ClusterScope,
+) (*bmm.Instance, error) {
+	instances, _, err := clusterScope.NvidiaCarbideClient.GetAllInstance(ctx, machineScope.OrgName)
+	if err != nil {
+		return nil, err
+	}
+	for i := range instances {
+		if instances[i].Name != nil && *instances[i].Name == machineScope.Name() {
+			return &instances[i], nil
+		}
+	}
+	return nil, nil
+}
+
+// recordEvent records an event on the given object if a Recorder is set.
+func (r *NvidiaCarbideMachineReconciler) recordEvent(obj runtime.Object, eventType, reason, messageFmt string, args ...interface{}) {
+	if r.Recorder != nil {
+		r.Recorder.Eventf(obj, eventType, reason, messageFmt, args...)
+	}
+}
+
+// setMachineFailure sets the FailureReason and FailureMessage on the machine status.
+func setMachineFailure(machine *infrastructurev1.NvidiaCarbideMachine, reason capierrors.MachineStatusError, message string) {
+	machine.Status.FailureReason = &reason
+	machine.Status.FailureMessage = &message
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -105,6 +105,7 @@ spec:
                       type: object
                     name:
                       description: Name of the subnet
+                      maxLength: 63
                       type: string
                     role:
                       description: Role of the subnet (control-plane or worker)
@@ -131,12 +132,14 @@ spec:
                     type: object
                   name:
                     description: Name of the VPC
+                    maxLength: 63
                     type: string
                   networkSecurityGroup:
                     description: NetworkSecurityGroup configuration
                     properties:
                       name:
                         description: Name of the Network Security Group
+                        maxLength: 63
                         type: string
                       rules:
                         description: Rules for the Network Security Group
@@ -157,10 +160,13 @@ spec:
                               type: string
                             name:
                               description: Name of the rule
+                              maxLength: 63
+                              pattern: ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$
                               type: string
                             portRange:
                               description: PortRange specifies the port range (e.g.,
                                 "80", "1000-2000")
+                              pattern: ^[0-9]{1,5}(-[0-9]{1,5})?$
                               type: string
                             protocol:
                               description: Protocol (tcp, udp, icmp, or all)
@@ -262,9 +268,28 @@ spec:
                   - type
                   type: object
                 type: array
+              failureMessage:
+                description: |-
+                  FailureMessage will be set in the event that there is a terminal problem
+                  reconciling the cluster and will contain a more descriptive value suitable
+                  for human consumption.
+                type: string
+              failureReason:
+                description: |-
+                  FailureReason will be set in the event that there is a terminal problem
+                  reconciling the cluster and will contain a succinct value suitable for
+                  machine interpretation.
+                type: string
               networkStatus:
                 description: NetworkStatus contains the network infrastructure status
                 properties:
+                  allocationID:
+                    description: AllocationID is the NVIDIA Carbide Allocation ID
+                    type: string
+                  childIPBlockID:
+                    description: ChildIPBlockID is the tenant-owned child IP block
+                      derived from the allocation
+                    type: string
                   ipBlockID:
                     description: IPBlockID is the NVIDIA Carbide IP Block ID used
                       for subnet allocation

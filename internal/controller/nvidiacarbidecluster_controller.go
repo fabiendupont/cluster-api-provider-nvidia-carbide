@@ -21,12 +21,17 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	capierrors "sigs.k8s.io/cluster-api/errors"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -39,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrastructurev1 "github.com/fabiendupont/cluster-api-provider-nvidia-carbide/api/v1beta1"
+	carbidemetrics "github.com/fabiendupont/cluster-api-provider-nvidia-carbide/internal/metrics"
 	"github.com/fabiendupont/cluster-api-provider-nvidia-carbide/pkg/scope"
 	bmm "github.com/nvidia/bare-metal-manager-rest/sdk/standard"
 )
@@ -58,7 +64,8 @@ const (
 // NvidiaCarbideClusterReconciler reconciles a NvidiaCarbideCluster object
 type NvidiaCarbideClusterReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 
 	// NvidiaCarbideClient can be set for testing to inject a mock client
 	NvidiaCarbideClient scope.NvidiaCarbideClientInterface
@@ -71,6 +78,7 @@ type NvidiaCarbideClusterReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=nvidiacarbideclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile handles NvidiaCarbideCluster reconciliation
 func (r *NvidiaCarbideClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -229,6 +237,8 @@ func (r *NvidiaCarbideClusterReconciler) reconcileNormal(
 		Reason: "NvidiaCarbideClusterReady",
 	})
 
+	r.recordEvent(clusterScope.NvidiaCarbideCluster, corev1.EventTypeNormal, "ClusterInfrastructureReady",
+		"Cluster infrastructure is ready")
 	logger.Info("Successfully reconciled NvidiaCarbideCluster")
 	return ctrl.Result{}, nil
 }
@@ -285,6 +295,9 @@ func (r *NvidiaCarbideClusterReconciler) reconcileVPC(
 
 	clusterScope.SetVPCID(*vpc.Id)
 	logger.Info("Successfully created VPC", "vpcID", *vpc.Id)
+	r.recordEvent(clusterScope.NvidiaCarbideCluster, corev1.EventTypeNormal, "VPCCreated",
+		"Successfully created VPC %s", *vpc.Id)
+	carbidemetrics.VPCCount.WithLabelValues(siteID).Inc()
 
 	return nil
 }
@@ -383,28 +396,39 @@ func (r *NvidiaCarbideClusterReconciler) ensureIPBlockAndAllocation(
 			if alloc != nil && alloc.Id != nil {
 				clusterScope.SetAllocationID(*alloc.Id)
 				logger.Info("Successfully created allocation", "allocationID", *alloc.Id)
-
-				for _, ac := range alloc.AllocationConstraints {
-					if ac.ResourceType != nil && *ac.ResourceType == "IPBlock" {
-						if derivedID := ac.DerivedResourceId.Get(); derivedID != nil {
-							clusterScope.SetChildIPBlockID(*derivedID)
-							logger.Info("Child IP block created", "childIPBlockID", *derivedID)
-							break
-						}
-					}
-				}
+				r.extractChildIPBlockID(clusterScope, alloc)
 			} else if err != nil {
 				// SDK deserialization failed but allocation was created.
-				// We need to query the allocation to get the child IP block ID.
+				// We cannot recover without knowing the allocation ID.
 				logger.Info("Allocation created (201) but SDK deserialization failed, will retry to get IDs", "error", err)
 				return "", fmt.Errorf("allocation created but response parsing failed, will retry: %w", err)
 			}
 		} else if httpResp != nil && httpResp.StatusCode == http.StatusConflict {
-			// 409 Conflict — allocation already exists from a previous attempt
-			logger.Info("Allocation already exists (409 Conflict), will retry to get child IP block ID")
-			return "", fmt.Errorf("allocation exists but child IP block ID not yet captured, will retry")
+			// 409 Conflict — allocation already exists from a previous attempt.
+			// Query existing allocations to find the matching one.
+			logger.Info("Allocation already exists (409 Conflict), querying existing allocations")
+			if foundAlloc, err := r.findExistingAllocation(ctx, clusterScope, allocName); err != nil {
+				return "", fmt.Errorf("failed to find existing allocation: %w", err)
+			} else if foundAlloc != nil && foundAlloc.Id != nil {
+				clusterScope.SetAllocationID(*foundAlloc.Id)
+				r.extractChildIPBlockID(clusterScope, foundAlloc)
+				logger.Info("Found existing allocation", "allocationID", *foundAlloc.Id)
+			} else {
+				return "", fmt.Errorf("allocation conflict but could not find existing allocation")
+			}
 		} else if err != nil {
 			return "", fmt.Errorf("failed to create allocation: %w", err)
+		}
+	}
+
+	// If we have an allocation ID but no child IP block ID, query the allocation
+	if clusterScope.AllocationID() != "" && clusterScope.ChildIPBlockID() == "" {
+		alloc, _, err := clusterScope.NvidiaCarbideClient.GetAllocation(ctx, clusterScope.OrgName, clusterScope.AllocationID())
+		if err != nil {
+			return "", fmt.Errorf("failed to get allocation %s: %w", clusterScope.AllocationID(), err)
+		}
+		if alloc != nil {
+			r.extractChildIPBlockID(clusterScope, alloc)
 		}
 	}
 
@@ -414,6 +438,38 @@ func (r *NvidiaCarbideClusterReconciler) ensureIPBlockAndAllocation(
 	}
 
 	return childIPBlockID, nil
+}
+
+// extractChildIPBlockID extracts the child IP block ID from an allocation's constraints.
+func (r *NvidiaCarbideClusterReconciler) extractChildIPBlockID(
+	clusterScope *scope.ClusterScope, alloc *bmm.Allocation,
+) {
+	for _, ac := range alloc.AllocationConstraints {
+		if ac.ResourceType != nil && *ac.ResourceType == "IPBlock" {
+			if derivedID := ac.DerivedResourceId.Get(); derivedID != nil {
+				clusterScope.SetChildIPBlockID(*derivedID)
+				break
+			}
+		}
+	}
+}
+
+// findExistingAllocation queries all allocations and returns the one matching the given name.
+func (r *NvidiaCarbideClusterReconciler) findExistingAllocation(
+	ctx context.Context, clusterScope *scope.ClusterScope, name string,
+) (*bmm.Allocation, error) {
+	// The GetAllAllocation SDK method doesn't support name filtering directly,
+	// so we fetch all and filter client-side.
+	allocations, _, err := clusterScope.NvidiaCarbideClient.GetAllAllocation(ctx, clusterScope.OrgName)
+	if err != nil {
+		return nil, err
+	}
+	for i := range allocations {
+		if allocations[i].Name != nil && *allocations[i].Name == name {
+			return &allocations[i], nil
+		}
+	}
+	return nil, nil
 }
 
 func (r *NvidiaCarbideClusterReconciler) reconcileSubnets(
@@ -483,6 +539,8 @@ func (r *NvidiaCarbideClusterReconciler) reconcileSubnets(
 
 		clusterScope.SetSubnetID(subnetSpec.Name, *subnet.Id)
 		logger.Info("Successfully created subnet", "subnetName", subnetSpec.Name, "subnetID", *subnet.Id)
+		r.recordEvent(clusterScope.NvidiaCarbideCluster, corev1.EventTypeNormal, "SubnetCreated",
+			"Successfully created subnet %s (%s)", subnetSpec.Name, *subnet.Id)
 	}
 
 	return nil
@@ -564,6 +622,8 @@ func (r *NvidiaCarbideClusterReconciler) reconcileNSG(
 
 	clusterScope.SetNSGID(*nsg.Id)
 	logger.Info("Successfully created NSG", "nsgID", *nsg.Id)
+	r.recordEvent(clusterScope.NvidiaCarbideCluster, corev1.EventTypeNormal, "NSGCreated",
+		"Successfully created NSG %s", *nsg.Id)
 
 	return nil
 }
@@ -578,46 +638,61 @@ func (r *NvidiaCarbideClusterReconciler) reconcileDelete(
 	// Delete NSG if it exists
 	if clusterScope.NSGID() != "" {
 		logger.Info("Deleting NSG", "nsgID", clusterScope.NSGID())
-		httpResp, err := clusterScope.NvidiaCarbideClient.DeleteNetworkSecurityGroup(
-			ctx, clusterScope.OrgName, clusterScope.NSGID())
-		if err != nil {
-			logger.Error(err, "failed to delete NSG", "nsgID", clusterScope.NSGID())
+		if err := r.deleteResource(ctx, clusterScope, "NSG", clusterScope.NSGID(),
+			clusterScope.NvidiaCarbideClient.DeleteNetworkSecurityGroup); err != nil {
 			return ctrl.Result{}, err
 		}
-		if httpResp.StatusCode != http.StatusOK && httpResp.StatusCode != http.StatusNoContent {
-			logger.Error(nil, "failed to delete NSG", "nsgID", clusterScope.NSGID(), "status", httpResp.StatusCode)
-			return ctrl.Result{}, fmt.Errorf("failed to delete NSG, status %d", httpResp.StatusCode)
-		}
+		clusterScope.SetNSGID("")
 	}
 
 	// Delete Subnets
 	for subnetName, subnetID := range clusterScope.SubnetIDs() {
 		logger.Info("Deleting subnet", "subnetName", subnetName, "subnetID", subnetID)
-		httpResp, err := clusterScope.NvidiaCarbideClient.DeleteSubnet(ctx, clusterScope.OrgName, subnetID)
-		if err != nil {
-			logger.Error(err, "failed to delete subnet", "subnetName", subnetName, "subnetID", subnetID)
+		if err := r.deleteResource(ctx, clusterScope, "subnet", subnetID,
+			clusterScope.NvidiaCarbideClient.DeleteSubnet); err != nil {
 			return ctrl.Result{}, err
 		}
-		if httpResp.StatusCode != http.StatusOK && httpResp.StatusCode != http.StatusNoContent {
-			logger.Error(nil, "failed to delete subnet",
-				"subnetName", subnetName, "subnetID", subnetID,
-				"status", httpResp.StatusCode)
-			return ctrl.Result{}, fmt.Errorf("failed to delete subnet %s, status %d", subnetName, httpResp.StatusCode)
+		delete(clusterScope.SubnetIDs(), subnetName)
+	}
+
+	// Delete Allocation if it exists
+	if clusterScope.AllocationID() != "" {
+		logger.Info("Deleting allocation", "allocationID", clusterScope.AllocationID())
+		if err := r.deleteResource(ctx, clusterScope, "allocation", clusterScope.AllocationID(),
+			clusterScope.NvidiaCarbideClient.DeleteAllocation); err != nil {
+			return ctrl.Result{}, err
 		}
+		clusterScope.SetAllocationID("")
+	}
+
+	// Delete child IP block if it exists
+	if clusterScope.ChildIPBlockID() != "" {
+		logger.Info("Deleting child IP block", "childIPBlockID", clusterScope.ChildIPBlockID())
+		if err := r.deleteResource(ctx, clusterScope, "child IP block", clusterScope.ChildIPBlockID(),
+			clusterScope.NvidiaCarbideClient.DeleteIpblock); err != nil {
+			return ctrl.Result{}, err
+		}
+		clusterScope.SetChildIPBlockID("")
+	}
+
+	// Delete parent IP block if it exists
+	if clusterScope.IPBlockID() != "" {
+		logger.Info("Deleting parent IP block", "ipBlockID", clusterScope.IPBlockID())
+		if err := r.deleteResource(ctx, clusterScope, "parent IP block", clusterScope.IPBlockID(),
+			clusterScope.NvidiaCarbideClient.DeleteIpblock); err != nil {
+			return ctrl.Result{}, err
+		}
+		clusterScope.SetIPBlockID("")
 	}
 
 	// Delete VPC
 	if clusterScope.VPCID() != "" {
 		logger.Info("Deleting VPC", "vpcID", clusterScope.VPCID())
-		httpResp, err := clusterScope.NvidiaCarbideClient.DeleteVpc(ctx, clusterScope.OrgName, clusterScope.VPCID())
-		if err != nil {
-			logger.Error(err, "failed to delete VPC", "vpcID", clusterScope.VPCID())
+		if err := r.deleteResource(ctx, clusterScope, "VPC", clusterScope.VPCID(),
+			clusterScope.NvidiaCarbideClient.DeleteVpc); err != nil {
 			return ctrl.Result{}, err
 		}
-		if httpResp.StatusCode != http.StatusOK && httpResp.StatusCode != http.StatusNoContent {
-			logger.Error(nil, "failed to delete VPC", "vpcID", clusterScope.VPCID(), "status", httpResp.StatusCode)
-			return ctrl.Result{}, fmt.Errorf("failed to delete VPC, status %d", httpResp.StatusCode)
-		}
+		clusterScope.SetVPCID("")
 	}
 
 	// Remove finalizer
@@ -625,6 +700,86 @@ func (r *NvidiaCarbideClusterReconciler) reconcileDelete(
 
 	logger.Info("Successfully deleted NvidiaCarbideCluster")
 	return ctrl.Result{}, nil
+}
+
+// deleteResource calls a delete API method and handles 404 (already deleted) gracefully.
+func (r *NvidiaCarbideClusterReconciler) deleteResource(
+	ctx context.Context, clusterScope *scope.ClusterScope,
+	resourceType, resourceID string,
+	deleteFn func(ctx context.Context, org string, id string) (*http.Response, error),
+) error {
+	logger := log.FromContext(ctx)
+
+	httpResp, err := deleteFn(ctx, clusterScope.OrgName, resourceID)
+	if err != nil {
+		if httpResp != nil && httpResp.StatusCode == http.StatusNotFound {
+			logger.Info("Resource already deleted", "type", resourceType, "id", resourceID)
+			return nil
+		}
+		return fmt.Errorf("failed to delete %s %s: %w", resourceType, resourceID, err)
+	}
+	if httpResp.StatusCode != http.StatusOK && httpResp.StatusCode != http.StatusNoContent &&
+		httpResp.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("failed to delete %s %s, status %d", resourceType, resourceID, httpResp.StatusCode)
+	}
+	return nil
+}
+
+// recordEvent records an event on the given object if a Recorder is set.
+func (r *NvidiaCarbideClusterReconciler) recordEvent(obj runtime.Object, eventType, reason, messageFmt string, args ...interface{}) {
+	if r.Recorder != nil {
+		r.Recorder.Eventf(obj, eventType, reason, messageFmt, args...)
+	}
+}
+
+// classifyError classifies an HTTP response and returns an appropriate requeue result.
+func classifyError(httpResp *http.Response, err error) (ctrl.Result, error) {
+	if httpResp == nil {
+		carbidemetrics.APIErrors.WithLabelValues("unknown", "network_error").Inc()
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+	}
+	if httpResp.StatusCode >= 400 {
+		carbidemetrics.APIErrors.WithLabelValues("unknown", strconv.Itoa(httpResp.StatusCode)).Inc()
+	}
+	switch httpResp.StatusCode {
+	case 400, 422:
+		return ctrl.Result{}, err
+	case 401, 403:
+		return ctrl.Result{}, err
+	case 404:
+		return ctrl.Result{}, nil
+	case 409:
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	case 429:
+		retryAfter := parseRetryAfter(httpResp)
+		return ctrl.Result{RequeueAfter: retryAfter}, nil
+	default:
+		if httpResp.StatusCode >= 500 {
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, err
+		}
+		return ctrl.Result{}, err
+	}
+}
+
+// parseRetryAfter extracts the Retry-After header value from an HTTP response.
+func parseRetryAfter(resp *http.Response) time.Duration {
+	if resp == nil {
+		return 30 * time.Second
+	}
+	retryAfter := resp.Header.Get("Retry-After")
+	if retryAfter == "" {
+		return 30 * time.Second
+	}
+	if seconds, err := strconv.Atoi(retryAfter); err == nil {
+		return time.Duration(seconds) * time.Second
+	}
+	return 30 * time.Second
+}
+
+// setClusterFailure sets the FailureReason and FailureMessage on the cluster status.
+func setClusterFailure(cluster *infrastructurev1.NvidiaCarbideCluster, reason capierrors.ClusterStatusError, message string) {
+	cluster.Status.FailureReason = &reason
+	cluster.Status.FailureMessage = &message
 }
 
 // SetupWithManager sets up the controller with the Manager.

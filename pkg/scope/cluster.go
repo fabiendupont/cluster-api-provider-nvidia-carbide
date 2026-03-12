@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -45,6 +46,7 @@ type NvidiaCarbideClientInterface interface {
 	// IPBlock
 	CreateIpblock(ctx context.Context, org string, req bmm.IpBlockCreateRequest) (*bmm.IpBlock, *http.Response, error)
 	GetIpblock(ctx context.Context, org string, ipBlockId string) (*bmm.IpBlock, *http.Response, error)
+	DeleteIpblock(ctx context.Context, org string, ipBlockId string) (*http.Response, error)
 
 	// NetworkSecurityGroup
 	CreateNetworkSecurityGroup(
@@ -57,6 +59,12 @@ type NvidiaCarbideClientInterface interface {
 
 	// Allocation
 	CreateAllocation(ctx context.Context, org string, req bmm.AllocationCreateRequest) (*bmm.Allocation, *http.Response, error)
+	GetAllocation(ctx context.Context, org string, allocationId string) (*bmm.Allocation, *http.Response, error)
+	GetAllAllocation(ctx context.Context, org string) ([]bmm.Allocation, *http.Response, error)
+	DeleteAllocation(ctx context.Context, org string, allocationId string) (*http.Response, error)
+
+	// Instance List (for duplicate prevention)
+	GetAllInstance(ctx context.Context, org string) ([]bmm.Instance, *http.Response, error)
 
 	// Instance
 	CreateInstance(ctx context.Context, org string, req bmm.InstanceCreateRequest) (*bmm.Instance, *http.Response, error)
@@ -109,6 +117,9 @@ func (c *carbideClient) CreateIpblock(
 func (c *carbideClient) GetIpblock(ctx context.Context, org, ipBlockId string) (*bmm.IpBlock, *http.Response, error) {
 	return c.client.IPBlockAPI.GetIpblock(c.authCtx(ctx), org, ipBlockId).Execute()
 }
+func (c *carbideClient) DeleteIpblock(ctx context.Context, org, ipBlockId string) (*http.Response, error) {
+	return c.client.IPBlockAPI.DeleteIpblock(c.authCtx(ctx), org, ipBlockId).Execute()
+}
 
 // NetworkSecurityGroup methods
 func (c *carbideClient) CreateNetworkSecurityGroup(
@@ -127,13 +138,26 @@ func (c *carbideClient) DeleteNetworkSecurityGroup(ctx context.Context, org, nsg
 	return c.client.NetworkSecurityGroupAPI.DeleteNetworkSecurityGroup(c.authCtx(ctx), org, nsgId).Execute()
 }
 
-// Instance methods
+// Allocation methods
 
 func (c *carbideClient) CreateAllocation(
 	ctx context.Context, org string, req bmm.AllocationCreateRequest,
 ) (*bmm.Allocation, *http.Response, error) {
 	return c.client.AllocationAPI.CreateAllocation(c.authCtx(ctx), org).AllocationCreateRequest(req).Execute()
 }
+func (c *carbideClient) GetAllocation(
+	ctx context.Context, org, allocationId string,
+) (*bmm.Allocation, *http.Response, error) {
+	return c.client.AllocationAPI.GetAllocation(c.authCtx(ctx), org, allocationId).Execute()
+}
+func (c *carbideClient) GetAllAllocation(ctx context.Context, org string) ([]bmm.Allocation, *http.Response, error) {
+	return c.client.AllocationAPI.GetAllAllocation(c.authCtx(ctx), org).Execute()
+}
+func (c *carbideClient) DeleteAllocation(ctx context.Context, org, allocationId string) (*http.Response, error) {
+	return c.client.AllocationAPI.DeleteAllocation(c.authCtx(ctx), org, allocationId).Execute()
+}
+
+// Instance methods
 
 func (c *carbideClient) CreateInstance(
 	ctx context.Context, org string, req bmm.InstanceCreateRequest,
@@ -147,6 +171,9 @@ func (c *carbideClient) GetInstance(
 }
 func (c *carbideClient) DeleteInstance(ctx context.Context, org, instanceId string) (*http.Response, error) {
 	return c.client.InstanceAPI.DeleteInstance(c.authCtx(ctx), org, instanceId).Execute()
+}
+func (c *carbideClient) GetAllInstance(ctx context.Context, org string) ([]bmm.Instance, *http.Response, error) {
+	return c.client.InstanceAPI.GetAllInstance(c.authCtx(ctx), org).Execute()
 }
 
 // ClusterScopeParams defines parameters for creating a cluster scope
@@ -217,6 +244,11 @@ func NewClusterScope(ctx context.Context, params ClusterScopeParams) (*ClusterSc
 		}
 
 		orgName = string(orgNameBytes)
+
+		endpointStr := string(endpoint)
+		if !strings.HasPrefix(endpointStr, "https://") {
+			return nil, fmt.Errorf("endpoint must use https:// scheme, got: %s", endpointStr)
+		}
 
 		// Create NVIDIA Carbide API client with authentication
 		sdkCfg := bmm.NewConfiguration()

@@ -110,8 +110,17 @@ func (s *MachineScope) Role() string {
 	return "worker"
 }
 
-// ProviderID returns the provider ID
+// ProviderID returns the provider ID, checking status first then falling back to spec
 func (s *MachineScope) ProviderID() *providerid.ProviderID {
+	// Check status first (set by provider after creation)
+	if s.NvidiaCarbideMachine.Status.ProviderID != nil && *s.NvidiaCarbideMachine.Status.ProviderID != "" {
+		pid, err := providerid.ParseProviderID(*s.NvidiaCarbideMachine.Status.ProviderID)
+		if err == nil {
+			return pid
+		}
+	}
+
+	// Fall back to spec (for pre-existing machines)
 	if s.NvidiaCarbideMachine.Spec.ProviderID == nil || *s.NvidiaCarbideMachine.Spec.ProviderID == "" {
 		return nil
 	}
@@ -124,7 +133,7 @@ func (s *MachineScope) ProviderID() *providerid.ProviderID {
 	return pid
 }
 
-// SetProviderID sets the provider ID
+// SetProviderID sets the provider ID in both status and spec
 // Format: nvidia-carbide://<org>/<tenant>/<site>/<instance-id>
 func (s *MachineScope) SetProviderID(tenantName, siteName, instanceIDStr string) error {
 	instanceUUID, err := uuid.Parse(instanceIDStr)
@@ -134,6 +143,7 @@ func (s *MachineScope) SetProviderID(tenantName, siteName, instanceIDStr string)
 
 	pid := providerid.NewProviderID(s.OrgName, tenantName, siteName, instanceUUID)
 	providerIDStr := pid.String()
+	s.NvidiaCarbideMachine.Status.ProviderID = &providerIDStr
 	s.NvidiaCarbideMachine.Spec.ProviderID = &providerIDStr
 	s.Machine.Spec.ProviderID = providerIDStr
 	return nil
