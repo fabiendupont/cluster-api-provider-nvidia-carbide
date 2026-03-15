@@ -73,6 +73,19 @@ type NvidiaCarbideClientInterface interface {
 	CreateInstance(ctx context.Context, org string, req bmm.InstanceCreateRequest) (*bmm.Instance, *http.Response, error)
 	GetInstance(ctx context.Context, org string, instanceId string) (*bmm.Instance, *http.Response, error)
 	DeleteInstance(ctx context.Context, org string, instanceId string) (*http.Response, error)
+
+	// Site details
+	GetSite(ctx context.Context, org string, siteId string) (*bmm.Site, *http.Response, error)
+
+	// Tenant
+	GetCurrentTenant(ctx context.Context, org string) (*bmm.Tenant, *http.Response, error)
+
+	// Instance update and history
+	UpdateInstance(ctx context.Context, org string, instanceId string, req bmm.InstanceUpdateRequest) (*bmm.Instance, *http.Response, error)
+	GetInstanceStatusHistory(ctx context.Context, org string, instanceId string) ([]bmm.StatusDetail, *http.Response, error)
+
+	// Batch instance creation
+	BatchCreateInstance(ctx context.Context, org string, req bmm.BatchInstanceCreateRequest) ([]bmm.Instance, *http.Response, error)
 }
 
 // carbideClient wraps the SDK APIClient and injects auth context
@@ -183,6 +196,32 @@ func (c *carbideClient) DeleteInstance(ctx context.Context, org, instanceId stri
 }
 func (c *carbideClient) GetAllInstance(ctx context.Context, org string) ([]bmm.Instance, *http.Response, error) {
 	return c.client.InstanceAPI.GetAllInstance(c.authCtx(ctx), org).Execute()
+}
+
+func (c *carbideClient) GetSite(ctx context.Context, org, siteId string) (*bmm.Site, *http.Response, error) {
+	return c.client.SiteAPI.GetSite(c.authCtx(ctx), org, siteId).Execute()
+}
+
+func (c *carbideClient) GetCurrentTenant(ctx context.Context, org string) (*bmm.Tenant, *http.Response, error) {
+	return c.client.TenantAPI.GetCurrentTenant(c.authCtx(ctx), org).Execute()
+}
+
+func (c *carbideClient) UpdateInstance(
+	ctx context.Context, org, instanceId string, req bmm.InstanceUpdateRequest,
+) (*bmm.Instance, *http.Response, error) {
+	return c.client.InstanceAPI.UpdateInstance(c.authCtx(ctx), org, instanceId).InstanceUpdateRequest(req).Execute()
+}
+
+func (c *carbideClient) GetInstanceStatusHistory(
+	ctx context.Context, org, instanceId string,
+) ([]bmm.StatusDetail, *http.Response, error) {
+	return c.client.InstanceAPI.GetInstanceStatusHistory(c.authCtx(ctx), org, instanceId).Execute()
+}
+
+func (c *carbideClient) BatchCreateInstance(
+	ctx context.Context, org string, req bmm.BatchInstanceCreateRequest,
+) ([]bmm.Instance, *http.Response, error) {
+	return c.client.InstanceAPI.BatchCreateInstance(c.authCtx(ctx), org).BatchInstanceCreateRequest(req).Execute()
 }
 
 // ClusterScopeParams defines parameters for creating a cluster scope

@@ -267,6 +267,31 @@ func (r *NvidiaCarbideMachineReconciler) createInstance(
 		Reason: "BootstrapDataReady",
 	})
 
+	// Validate site capabilities for advanced features
+	if len(machineScope.NvidiaCarbideMachine.Spec.NVLinkInterfaces) > 0 ||
+		len(machineScope.NvidiaCarbideMachine.Spec.InfiniBandInterfaces) > 0 {
+		siteID, siteErr := clusterScope.SiteID(ctx)
+		if siteErr == nil {
+			site, _, siteErr := clusterScope.NvidiaCarbideClient.GetSite(ctx, clusterScope.OrgName, siteID)
+			if siteErr == nil && site != nil && site.Capabilities != nil {
+				if len(machineScope.NvidiaCarbideMachine.Spec.NVLinkInterfaces) > 0 &&
+					site.Capabilities.NvLinkPartition != nil && !*site.Capabilities.NvLinkPartition {
+					return fmt.Errorf("site %s does not support NVLink partitioning", siteID)
+				}
+			}
+		}
+	}
+
+	// Validate tenant capabilities for targeted provisioning
+	if machineScope.NvidiaCarbideMachine.Spec.InstanceType.MachineID != "" {
+		tenant, _, tenantErr := clusterScope.NvidiaCarbideClient.GetCurrentTenant(ctx, clusterScope.OrgName)
+		if tenantErr == nil && tenant != nil && tenant.Capabilities != nil {
+			if tenant.Capabilities.TargetedInstanceCreation != nil && !*tenant.Capabilities.TargetedInstanceCreation {
+				return fmt.Errorf("tenant does not have targeted instance creation enabled; cannot use machineID")
+			}
+		}
+	}
+
 	// Get subnet ID for primary network interface
 	subnetID, err := machineScope.GetSubnetID()
 	if err != nil {
@@ -377,9 +402,24 @@ func (r *NvidiaCarbideMachineReconciler) createInstance(
 		instanceReq.NvLinkInterfaces = nvlinkInterfaces
 	}
 
-	// Enable phone home for bootstrap communication
-	phoneHome := true
-	instanceReq.PhoneHomeEnabled = &phoneHome
+	// Set description if specified
+	if machineScope.NvidiaCarbideMachine.Spec.Description != "" {
+		desc := machineScope.NvidiaCarbideMachine.Spec.Description
+		instanceReq.Description = *bmm.NewNullableString(&desc)
+	}
+
+	// Set always boot with custom iPXE if specified
+	if machineScope.NvidiaCarbideMachine.Spec.AlwaysBootWithCustomIpxe {
+		instanceReq.AlwaysBootWithCustomIpxe = &machineScope.NvidiaCarbideMachine.Spec.AlwaysBootWithCustomIpxe
+	}
+
+	// Enable phone home (defaults to true unless explicitly disabled)
+	if machineScope.NvidiaCarbideMachine.Spec.PhoneHomeEnabled != nil {
+		instanceReq.PhoneHomeEnabled = machineScope.NvidiaCarbideMachine.Spec.PhoneHomeEnabled
+	} else {
+		phoneHome := true
+		instanceReq.PhoneHomeEnabled = &phoneHome
+	}
 
 	logger.Info("Creating NVIDIA Carbide instance",
 		"name", machineScope.Name(),
@@ -403,6 +443,14 @@ func (r *NvidiaCarbideMachineReconciler) createInstance(
 
 	instanceID := *instance.Id
 	machineID := ""
+	// Set serial console URL annotation if available
+	if instance.SerialConsoleUrl.Get() != nil && *instance.SerialConsoleUrl.Get() != "" {
+		if machineScope.NvidiaCarbideMachine.Annotations == nil {
+			machineScope.NvidiaCarbideMachine.Annotations = map[string]string{}
+		}
+		machineScope.NvidiaCarbideMachine.Annotations["nvidia-carbide.io/serial-console-url"] = *instance.SerialConsoleUrl.Get()
+	}
+
 	if instance.MachineId.Get() != nil {
 		machineID = *instance.MachineId.Get()
 	}
@@ -456,6 +504,14 @@ func (r *NvidiaCarbideMachineReconciler) reconcileInstance(
 	if instance.Status != nil {
 		machineScope.SetInstanceState(string(*instance.Status))
 	}
+	// Set serial console URL annotation if available
+	if instance.SerialConsoleUrl.Get() != nil && *instance.SerialConsoleUrl.Get() != "" {
+		if machineScope.NvidiaCarbideMachine.Annotations == nil {
+			machineScope.NvidiaCarbideMachine.Annotations = map[string]string{}
+		}
+		machineScope.NvidiaCarbideMachine.Annotations["nvidia-carbide.io/serial-console-url"] = *instance.SerialConsoleUrl.Get()
+	}
+
 	if instance.MachineId.Get() != nil {
 		machineScope.SetMachineID(*instance.MachineId.Get())
 	}

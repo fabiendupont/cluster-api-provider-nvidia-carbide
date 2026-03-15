@@ -59,6 +59,20 @@ type NvidiaCarbideMachineSpec struct {
 	// Labels to apply to the NVIDIA Carbide instance
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
+
+	// Description for the NVIDIA Carbide instance
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// AlwaysBootWithCustomIpxe when true, the iPXE script will always run on reboot.
+	// Requires the OS to be of iPXE type.
+	// +optional
+	AlwaysBootWithCustomIpxe bool `json:"alwaysBootWithCustomIpxe,omitempty"`
+
+	// PhoneHomeEnabled enables the Phone Home service on the instance
+	// +kubebuilder:default:=true
+	// +optional
+	PhoneHomeEnabled *bool `json:"phoneHomeEnabled,omitempty"`
 }
 
 // InfiniBandInterfaceSpec defines an InfiniBand partition attachment

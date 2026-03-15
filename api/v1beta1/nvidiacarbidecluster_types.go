@@ -85,6 +85,18 @@ type VPCSpec struct {
 	// NetworkSecurityGroup configuration
 	// +optional
 	NetworkSecurityGroup *NSGSpec `json:"networkSecurityGroup,omitempty"`
+
+	// NVLinkLogicalPartitionID attaches an NVLink logical partition at the VPC level
+	// +optional
+	NVLinkLogicalPartitionID string `json:"nvLinkLogicalPartitionId,omitempty"`
+
+	// Vni specifies an explicit VNI for the VPC
+	// +optional
+	Vni *int32 `json:"vni,omitempty"`
+
+	// Description for the VPC
+	// +optional
+	Description string `json:"description,omitempty"`
 }
 
 // NSGSpec defines Network Security Group configuration

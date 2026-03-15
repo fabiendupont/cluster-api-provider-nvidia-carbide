@@ -281,6 +281,15 @@ func (r *NvidiaCarbideClusterReconciler) reconcileVPC(
 		netVirtType := vpcSpec.NetworkVirtualizationType
 		vpcReq.NetworkVirtualizationType = *bmm.NewNullableString(&netVirtType)
 	}
+	if vpcSpec.NVLinkLogicalPartitionID != "" {
+		vpcReq.NvLinkLogicalPartitionId = *bmm.NewNullableString(&vpcSpec.NVLinkLogicalPartitionID)
+	}
+	if vpcSpec.Vni != nil {
+		vpcReq.Vni = *bmm.NewNullableInt32(vpcSpec.Vni)
+	}
+	if vpcSpec.Description != "" {
+		vpcReq.Description = &vpcSpec.Description
+	}
 	if len(vpcSpec.Labels) > 0 {
 		vpcReq.Labels = vpcSpec.Labels
 	}

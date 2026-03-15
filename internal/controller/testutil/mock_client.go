@@ -103,6 +103,30 @@ type MockCarbideClient struct {
 	GetAllInstanceFunc func(
 		ctx context.Context, org string,
 	) ([]bmm.Instance, *http.Response, error)
+
+	// Site details
+	GetSiteFunc func(
+		ctx context.Context, org string, siteId string,
+	) (*bmm.Site, *http.Response, error)
+
+	// Tenant
+	GetCurrentTenantFunc func(
+		ctx context.Context, org string,
+	) (*bmm.Tenant, *http.Response, error)
+
+	// Instance update and history
+	UpdateInstanceFunc func(
+		ctx context.Context, org string, instanceId string, req bmm.InstanceUpdateRequest,
+	) (*bmm.Instance, *http.Response, error)
+
+	GetInstanceStatusHistoryFunc func(
+		ctx context.Context, org string, instanceId string,
+	) ([]bmm.StatusDetail, *http.Response, error)
+
+	// Batch
+	BatchCreateInstanceFunc func(
+		ctx context.Context, org string, req bmm.BatchInstanceCreateRequest,
+	) ([]bmm.Instance, *http.Response, error)
 }
 
 // VPC methods
@@ -297,6 +321,51 @@ func (m *MockCarbideClient) GetAllInstance(
 ) ([]bmm.Instance, *http.Response, error) {
 	if m.GetAllInstanceFunc != nil {
 		return m.GetAllInstanceFunc(ctx, org)
+	}
+	return nil, nil, nil
+}
+
+func (m *MockCarbideClient) GetSite(
+	ctx context.Context, org string, siteId string,
+) (*bmm.Site, *http.Response, error) {
+	if m.GetSiteFunc != nil {
+		return m.GetSiteFunc(ctx, org, siteId)
+	}
+	return nil, nil, nil
+}
+
+func (m *MockCarbideClient) GetCurrentTenant(
+	ctx context.Context, org string,
+) (*bmm.Tenant, *http.Response, error) {
+	if m.GetCurrentTenantFunc != nil {
+		return m.GetCurrentTenantFunc(ctx, org)
+	}
+	return nil, nil, nil
+}
+
+func (m *MockCarbideClient) UpdateInstance(
+	ctx context.Context, org string, instanceId string, req bmm.InstanceUpdateRequest,
+) (*bmm.Instance, *http.Response, error) {
+	if m.UpdateInstanceFunc != nil {
+		return m.UpdateInstanceFunc(ctx, org, instanceId, req)
+	}
+	return nil, nil, nil
+}
+
+func (m *MockCarbideClient) GetInstanceStatusHistory(
+	ctx context.Context, org string, instanceId string,
+) ([]bmm.StatusDetail, *http.Response, error) {
+	if m.GetInstanceStatusHistoryFunc != nil {
+		return m.GetInstanceStatusHistoryFunc(ctx, org, instanceId)
+	}
+	return nil, nil, nil
+}
+
+func (m *MockCarbideClient) BatchCreateInstance(
+	ctx context.Context, org string, req bmm.BatchInstanceCreateRequest,
+) ([]bmm.Instance, *http.Response, error) {
+	if m.BatchCreateInstanceFunc != nil {
+		return m.BatchCreateInstanceFunc(ctx, org, req)
 	}
 	return nil, nil, nil
 }
