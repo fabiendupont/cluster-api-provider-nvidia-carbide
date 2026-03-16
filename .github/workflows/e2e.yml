@@ -61,6 +61,12 @@ jobs:
           make docker-build IMG=$IMG
           kind load docker-image $IMG --name carbide-rest-local
 
+      - name: Install cert-manager
+        run: |
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+          kubectl wait --for=condition=Available deployment \
+            --all -n cert-manager --timeout=3m
+
       - name: Install Cluster API CRDs
         run: |
           kubectl apply --server-side \
